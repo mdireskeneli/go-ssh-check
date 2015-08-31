@@ -3,7 +3,7 @@ Configuration Check with Go
 
 Usage:
 
-go run go-ssh-check <config.json> <output.json>
+```go run go-ssh-check <config.json> <output.json>```
 
 Example Config:
 ```

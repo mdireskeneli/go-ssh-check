@@ -1,0 +1,27 @@
+{
+   "ssh-user":"ec2-user",
+   "server":"localhost",
+   "private-key-file":"/id_rsa",
+   "check_config_file_exists":[
+      {
+         "name":"test1",
+         "path":"/home/ec2-user/file1"
+      },
+      {
+         "name":"test2",
+         "path":"/home/ec2-user/file2"
+      }
+   ],
+   "check_config_file_contains":[
+      {
+         "name":"test3",
+         "path":"/home/ec2-user/file1",
+         "check":"word1"
+      },
+      {
+         "name":"test4",
+         "path":"/home/ec2-user/file1",
+         "check":"word2"
+      }
+   ]
+}

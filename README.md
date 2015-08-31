@@ -6,7 +6,7 @@ Usage:
 go run go-ssh-check <config.json> <output.json>
 
 Example Config:
-
+'''
 {
    "ssh-user":"ec2-user",
    "server":"remote-server-ip",
@@ -34,3 +34,4 @@ Example Config:
       }
    ]
 }
+'''

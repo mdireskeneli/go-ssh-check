@@ -1,0 +1,22 @@
+{
+   "check_config_file_contains_result":[
+      {
+         "name":"test4",
+         "result":false
+      },
+      {
+         "name":"test3",
+         "result":true
+      }
+   ],
+   "check_config_file_exists_result":[
+      {
+         "name":"test2",
+         "result":true
+      },
+      {
+         "name":"test1",
+         "result":false
+      }
+   ]
+}

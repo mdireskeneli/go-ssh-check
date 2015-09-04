@@ -9,12 +9,10 @@ import (
 	"os"
 )
 
-const OUTPUT_FILE string = "out.json"
-
 type ConfigElement struct {
-	User              string `json:"ssh-user"`
-	Server            string `json:"server"`
-	Key               string `json:"private-key-file"`
+	User              string   `json:"ssh-user"`
+	Server            []string `json:"server"`
+	Key               string   `json:"private-key-file"`
 	CheckFileContains []struct {
 		Name  string `json:"name"`
 		Path  string `json:"path"`
@@ -34,14 +32,19 @@ type ConfigReturn struct {
 type CheckFileContainsResult struct {
 	Name   string `json:"name"`
 	Result bool   `json:"result"`
+	Server string `json:"server"`
 }
 
 type CheckFileExistsResult struct {
 	Name   string `json:"name"`
 	Result bool   `json:"result"`
+	Server string `json:"server"`
 }
 
 func main() {
+	if len(os.Args) < 2 {
+		logging.Fatal("\nUsage: go run go-ssh-check <config.json> <output.json>")
+	}
 	inputFile := os.Args[1]
 	configFile, err := os.Open(inputFile)
 	if err != nil {
@@ -57,21 +60,24 @@ func main() {
 	sContains := make([]CheckFileContainsResult, 0)
 	sExists := make([]CheckFileExistsResult, 0)
 
-	checkContainsCount := len(configElement.CheckFileContains)
-	checkExistsCount := len(configElement.CheckFileExists)
+	checkContainsCount := len(configElement.CheckFileContains) * len(configElement.Server)
+	checkExistsCount := len(configElement.CheckFileExists) * len(configElement.Server)
 
 	channelContains := make(chan CheckFileContainsResult, checkContainsCount)
 	channelExists := make(chan CheckFileExistsResult, checkExistsCount)
 
 	fmt.Printf("STARTING TESTS:\n")
-	for _, v := range configElement.CheckFileContains {
-		fmt.Printf("%+v\n", v)
-		go checkFileContains(v.Name, v.Path, v.Check, channelContains, *configElement)
-	}
-
-	for _, v := range configElement.CheckFileExists {
-		fmt.Printf("%+v\n", v)
-		go checkFileExists(v.Name, v.Path, channelExists, *configElement)
+	for _, host_ip := range configElement.Server {
+		// performing the check for each server
+		fmt.Printf("Server: " + host_ip + "\n")
+		for _, v := range configElement.CheckFileContains {
+			fmt.Printf("%+v\n", v)
+			go checkFileContains(v.Name, v.Path, v.Check, channelContains, *configElement, host_ip)
+		}
+		for _, v := range configElement.CheckFileExists {
+			fmt.Printf("%+v\n", v)
+			go checkFileExists(v.Name, v.Path, channelExists, *configElement, host_ip)
+		}
 	}
 
 	for i := 0; i < checkContainsCount; i++ {
@@ -99,7 +105,7 @@ func writeResultToJsonFile(result ConfigReturn) {
 	outputFile := os.Args[2]
 	fp, err := os.Create(outputFile)
 	if err != nil {
-		logging.Fatal("Unable to create %v. Err: %v.", OUTPUT_FILE, err)
+		logging.Fatal("Unable to create %v. Err: %v.", outputFile, err)
 	}
 	defer fp.Close()
 	encoder := json.NewEncoder(fp)
@@ -108,12 +114,13 @@ func writeResultToJsonFile(result ConfigReturn) {
 	}
 }
 
-func checkFileContains(name string, path string, check string, channelContains chan CheckFileContainsResult, configElement ConfigElement) {
+func checkFileContains(name string, path string, check string, channelContains chan CheckFileContainsResult, configElement ConfigElement, host_ip string) {
 	logging.Debug("Checking FileContains: " + "Path: " + path + "Check: " + check)
 	result := new(CheckFileContainsResult)
 	result.Name = name
+	result.Server = host_ip
 
-	ssh := getSsh(configElement)
+	ssh := getSsh(configElement, host_ip)
 	// command: grep -q "something" file; [ $? -eq 0 ] && echo "yes" || echo "no"
 	response, err := ssh.Run("grep -q \"" + check + "\" " + path + "; [ $? -eq 0 ] && echo \"1\" || echo \"0\"")
 	if err != nil {
@@ -122,24 +129,26 @@ func checkFileContains(name string, path string, check string, channelContains c
 		result.Result = getResultFromResponse(response)
 		channelContains <- *result
 	}
+
 }
 
-func getSsh(configElement ConfigElement) easyssh.MakeConfig {
+func getSsh(configElement ConfigElement, host_ip string) easyssh.MakeConfig {
 	ssh := easyssh.MakeConfig{
 		User:   configElement.User,
-		Server: configElement.Server,
+		Server: host_ip,
 		Key:    configElement.Key,
 		//Port: "22",
 	}
 	return ssh
 }
 
-func checkFileExists(name string, path string, channelExists chan CheckFileExistsResult, configElement ConfigElement) {
+func checkFileExists(name string, path string, channelExists chan CheckFileExistsResult, configElement ConfigElement, host_ip string) {
 	logging.Debug("Checking FileExists: " + "Path: " + path)
 	result := new(CheckFileExistsResult)
 	result.Name = name
+	result.Server = host_ip
 
-	ssh := getSsh(configElement)
+	ssh := getSsh(configElement, host_ip)
 	//command: [ -f file ] && echo "yes" || echo "no"
 	response, err := ssh.Run("[ -f " + path + " ] && echo \"1\" || echo \"0\"")
 	if err != nil {

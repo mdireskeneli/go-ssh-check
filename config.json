@@ -1,27 +1,30 @@
 {
    "ssh-user":"ec2-user",
-   "server":"localhost",
    "private-key-file":"/id_rsa",
+   "server":[
+   "server-ip-1",
+   "server-ip-2"
+   ],
    "check_config_file_exists":[
       {
          "name":"test1",
-         "path":"/home/ec2-user/file1"
+         "path":"/home/ec2-user/test1"
       },
       {
          "name":"test2",
-         "path":"/home/ec2-user/file2"
+         "path":"/home/ec2-user/test2"
       }
    ],
    "check_config_file_contains":[
       {
          "name":"test3",
-         "path":"/home/ec2-user/file1",
-         "check":"word1"
+         "path":"/home/ec2-user/test2",
+         "check":"asdf"
       },
       {
          "name":"test4",
-         "path":"/home/ec2-user/file1",
-         "check":"word2"
+         "path":"/home/ec2-user/test2",
+         "check":"TEST"
       }
    ]
 }

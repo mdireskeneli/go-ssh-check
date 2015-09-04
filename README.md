@@ -9,7 +9,10 @@ Example Config:
 ```
 {
    "ssh-user":"ec2-user",
-   "server":"remote-server-ip",
+   "server":[
+   "remote-server-ip-1",
+   "remote-server-ip-2"
+   ],
    "private-key-file":"/home/ec2-user/.ssh/id_rsa",
    "check_config_file_exists":[
       {

@@ -46,13 +46,11 @@ func main() {
 	configFile, err := os.Open(inputFile)
 	if err != nil {
 		logging.Fatal("opening config file" + err.Error())
-		os.Exit(1)
 	}
 	jsonParser := json.NewDecoder(configFile)
 	configElement := new(ConfigElement)
 	if err = jsonParser.Decode(&configElement); err != nil {
 		logging.Fatal("parsing config file" + err.Error())
-		os.Exit(1)
 	}
 	fmt.Printf("CONFIGURATION:\n")
 	fmt.Printf("%+v\n", configElement)
@@ -102,13 +100,11 @@ func writeResultToJsonFile(result ConfigReturn) {
 	fp, err := os.Create(outputFile)
 	if err != nil {
 		logging.Fatal("Unable to create %v. Err: %v.", OUTPUT_FILE, err)
-		os.Exit(1)
 	}
 	defer fp.Close()
 	encoder := json.NewEncoder(fp)
 	if err = encoder.Encode(result); err != nil {
 		logging.Fatal("Unable to encode Json file. Err: %v.", err)
-		os.Exit(1)
 	}
 }
 

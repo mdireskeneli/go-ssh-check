@@ -39,10 +39,10 @@ There are two separate apps to be used in this application.
 - writes a json file when the task finishes
 
 **sshcheck_worker.go:**
-- process the the tasks given in the json-config file.
+- processes the the tasks given in the json-config file.
 - allows multiple instances
 
-Both applications require a central postgre-sql database for communication and task-handling.
+Both applications require a common postgre-sql database for communication and task-handling.
 
 The application might require some individual tuning:
 

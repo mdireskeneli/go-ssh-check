@@ -30,9 +30,9 @@ Refer to the example config.json file for the structure of json-configuration fi
 
 **Details:**
 
-There are two files to be used in this application.
+There are two separate apps to be used in this application.
 
-**sshcheck.go: configurer, job-starter**
+**sshcheck.go: configurer & job-starter**
 - initializes the postgres database
 - parses config.json file and loads the data to the database.
 - tracks the current status of the tasks

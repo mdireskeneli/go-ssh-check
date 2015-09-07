@@ -14,35 +14,43 @@ The worker apps must be installed and run, in order to perform the tasks.
 
 Start a new ssh-check process:
 
-```go run go-ssh-check <config.json> <output.json>```
+```go run sshcheck <config.json> <output.json>```
 
 Output json file is optional. Default file to be created is "result.json".  
 
-Connect to a current ssh-check process (no initialization, no removal of previous data) 
+Connect to a running ssh-check process (without initialization, no removal of previous data) 
 
-```go run go-ssh-check -s```
+```go run sshcheck -s```
 
-Refer to the example config.json file for the structure of the configuration.
+Start a worker app for processing tasks: 
+
+```go run sshcheck_worker```
+
+Refer to the example config.json file for the structure of json-configuration file.
 
 **Details:**
 
 There are two files to be used in this application.
 
 **sshcheck.go: configurer, job-starter**
-
 - initializes the postgre database
 - parses config.json file and loads the data to the database.
 - tracks the current status of the tasks
 - writes a json file when the task finishes
 
-**sshcheck_worker.go: worker application**
+**sshcheck_worker.go:**
+- process the the tasks given in json-config file.
+- multiple instances are allowed
 
-The worker application can be run as multiple instances on different machines. Its main task is to process the input data on tasks-table and to write the check-results on the result-table in the postgres-database.
+Both applications require a central postgre-sql database for communication and task-handling.
+
+**Some implementation details**
+The worker application can be run as multiple instances on different machines. Its main task is to process the input data on tasks-table and to write the results on the result-table in the postgres-database.
 The workers await the new task-set, when they are started.
-When the tasks are ready to be taken, they are marked in the tasks-table as status=OPEN.
-If a row is currently processed by a worker app, then it is marked with status=LOCKED.
+When the tasks are ready to be taken, they are marked in the tasks-table as status:OPEN.
+If a row is currently being processed by a worker app, then it is marked with status:LOCKED.
 
-If a row cannot be processed by a certain worker app (ie. when the app fails or crushes, or when the connection cannot be established) then this row will return to open-status and will be available to other workers after a certain time (default: 1min).
+If a row cannot be processed by a certain worker app (ie. when the app fails or crushes, or when the connection cannot be established) then this row will return to the status:OPEN and thus will be available to other workers after a given time (default: 1min).
 
 The application might require some individual tuning:
 

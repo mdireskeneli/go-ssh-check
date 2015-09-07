@@ -11,8 +11,10 @@ import (
 	"time"
 )
 
-const number_of_rows_to_be_processed int = 3
-const number_of_workers int = 2
+// CONFIG FOR WORKER
+const number_of_rows_to_be_processed int = 6
+const number_of_workers int = 3
+const db_url string = "postgres://sshcheck:sshcheck@psql_host_ip/sshcheck?sslmode=disable" // ?sslmode=verify-full
 
 type TaskEntry struct {
 	id              int
@@ -41,7 +43,6 @@ var (
 )
 
 const select_task_query string = "select * from Task where status = $1 and num_trial < 3 order by id asc for update"
-const db_url string = "postgres://sshcheck:sshcheck@54.93.96.180/sshcheck?sslmode=disable" // ?sslmode=verify-full
 
 func main() {
 	db, err := sql.Open("postgres", db_url)
@@ -61,23 +62,18 @@ func main() {
 
 func startMainJob(db *sql.DB) {
 	fmt.Println("\n # Reading values")
-
 	err := db.QueryRow("select username, private_key from config;").Scan(&username, &private_key)
 	checkErr(err)
-
 	txn, err := db.Begin()
 	checkErr(err)
-
 	rows, err := txn.Query(select_task_query, "OPEN")
 	checkErr(err)
-
 	defer rows.Close()
 
 	taskEntryList := make([]TaskEntry, 0)
 	resultEntryList := make([]ResultEntry, 0)
 
 	var i int
-
 	for i = 0; rows.Next() && i < number_of_rows_to_be_processed; i++ {
 		taskEntry := new(TaskEntry)
 		err := rows.Scan(&taskEntry.id, &taskEntry.taskname, &taskEntry.tasktype, &taskEntry.filepath, &taskEntry.checkstr, &taskEntry.ip, &taskEntry.status, &taskEntry.num_trial, &taskEntry.task_start_time)
@@ -86,12 +82,12 @@ func startMainJob(db *sql.DB) {
 		log.Println(taskEntry.id, taskEntry.taskname)
 	}
 	var bulkSize = i
-
-	rows.Close()
-
-	txn.Exec("update task set status = 'LOCKED', task_start_time = $1 where id in ("+getIdTaskListForInQuery(taskEntryList)+");", int32(time.Now().Unix()))
-
-	txn.Commit()
+	err = rows.Close()
+	checkErr(err)
+	_, err = txn.Exec("update task set status = 'LOCKED', task_start_time = $1 where id in ("+getIdTaskListForInQuery(taskEntryList)+");", int32(time.Now().Unix()))
+	checkErr(err)
+	err = txn.Commit()
+	checkErr(err)
 
 	taskEntryChannel := make(chan TaskEntry, bulkSize)
 	resultEntryChannel := make(chan ResultEntry, bulkSize)
@@ -107,42 +103,29 @@ func startMainJob(db *sql.DB) {
 
 	for i := 0; i < bulkSize; i++ {
 		resultEntry := <-resultEntryChannel
-		//fmt.Print("\n" + "Result: ")
-		//fmt.Print(resultEntry)
 		resultEntryList = append(resultEntryList, resultEntry)
 	}
-
 	taskIdList := getIdTaskListForInQuery(taskEntryList)
 	resultIdList := getIdResultListForInQuery(resultEntryList)
-	//processed_job_num := len(resultIdList)
-
 	txn, err = db.Begin()
-
-	_, err = txn.Exec("delete from result where id in (" + resultIdList + ");") // clear list in case of previous entires with errors
 	checkErr(err)
-
-	checkErr(err)
+	//_, err = txn.Exec("delete from result where id in (" + resultIdList + ");") // clear list in case of previous entires with errors
+	//checkErr(err)
 	stmt, err := txn.Prepare(pq.CopyIn("result", "taskname", "server_ip", "tasktype", "result_val", "error_message"))
 	checkErr(err)
-
 	for _, r := range resultEntryList {
 		_, err = stmt.Exec(r.Name, r.Server, r.TaskType, r.Result, r.ErrorMessage)
 		checkErr(err)
 	}
-
 	_, err = stmt.Exec()
 	checkErr(err)
 	err = stmt.Close()
 	checkErr(err)
-
 	_, err = txn.Exec("delete from task where id in (" + resultIdList + ");") // parametrized variables do not work here
 	checkErr(err)
-
 	_, err = txn.Exec("update task set status = 'OPEN', num_trial = num_trial+1 where id in (" + taskIdList + ")") // parametrized variables do not work here
 	checkErr(err)
-
 	//	txn.Exec("update jobinfo set processed_job_num = processed_job_num + " + strconv.Itoa(processed_job_num) + " ;")
-
 	txn.Commit()
 }
 
@@ -159,22 +142,21 @@ func getIdTaskListForInQuery(taskEntryList []TaskEntry) string {
 
 func getIdResultListForInQuery(resultEntryList []ResultEntry) string {
 	inQuery := ""
-	for _, resEn := range resultEntryList {
+	for j := 0; j < len(resultEntryList); j++ {
+		if len(resultEntryList[j].ErrorMessage) > 0 {
+			continue
+		}
 		if inQuery != "" {
 			inQuery += ", "
 		}
-		inQuery += strconv.Itoa(resEn.id)
+		inQuery += strconv.Itoa(resultEntryList[j].id)
 	}
 	return inQuery
 }
 
 func checkFileContains(taskEntry TaskEntry, resultEntry chan ResultEntry) {
 	logging.Debug("Checking FileContains: " + "Path: " + taskEntry.filepath + "Check: " + taskEntry.checkstr)
-	result := new(ResultEntry)
-	result.id = taskEntry.id
-	result.Name = taskEntry.taskname
-	result.Server = taskEntry.ip
-	result.TaskType = taskEntry.tasktype
+	result := createResultTemplate(taskEntry)
 
 	ssh := getSsh(taskEntry.ip)
 	// command: grep -q "something" file; [ $? -eq 0 ] && echo "yes" || echo "no"
@@ -185,17 +167,13 @@ func checkFileContains(taskEntry TaskEntry, resultEntry chan ResultEntry) {
 	} else {
 		result.Result = getResultFromResponse(response)
 	}
-	resultEntry <- *result
+	resultEntry <- result
 
 }
 
 func checkFileExists(taskEntry TaskEntry, resultEntry chan ResultEntry) {
 	logging.Debug("Checking FileExists: " + "Path: " + taskEntry.filepath)
-	result := new(ResultEntry)
-	result.id = taskEntry.id
-	result.Name = taskEntry.taskname
-	result.Server = taskEntry.ip
-	result.TaskType = taskEntry.tasktype
+	result := createResultTemplate(taskEntry)
 
 	ssh := getSsh(taskEntry.ip)
 	//command: [ -f file ] && echo "yes" || echo "no"
@@ -206,7 +184,7 @@ func checkFileExists(taskEntry TaskEntry, resultEntry chan ResultEntry) {
 	} else {
 		result.Result = getResultFromResponse(response)
 	}
-	resultEntry <- *result
+	resultEntry <- result
 }
 
 func getResultFromResponse(response string) bool {
@@ -237,8 +215,9 @@ func worker(id int, taskEntryChannel <-chan TaskEntry, resultEntryChannel chan R
 		} else if taskEntry.tasktype == "file_contains" {
 			checkFileContains(taskEntry, resultEntryChannel)
 		} else {
-			fmt.Print("Unknown tasktype: " + taskEntry.tasktype)
-			resultEntryChannel <- *new(ResultEntry)
+			logging.Error("Unknown tasktype: " + taskEntry.tasktype)
+			result := createResultTemplate(taskEntry)
+			resultEntryChannel <- result
 		}
 	}
 
@@ -247,7 +226,6 @@ func worker(id int, taskEntryChannel <-chan TaskEntry, resultEntryChannel chan R
 func checkIfTaskExists(db *sql.DB) bool {
 	rows, err := db.Query(select_task_query, "OPEN")
 	checkErr(err)
-
 	taskExists := rows.Next()
 	rows.Close()
 	return taskExists
@@ -255,6 +233,16 @@ func checkIfTaskExists(db *sql.DB) bool {
 
 func checkErr(err error) {
 	if err != nil {
-		log.Printf("%T %+v", err, err)
+		panic(err)
+		//log.Printf("%T %+v", err, err)
 	}
+}
+
+func createResultTemplate(taskEntry TaskEntry) ResultEntry {
+	result := new(ResultEntry)
+	result.id = taskEntry.id
+	result.Name = taskEntry.taskname
+	result.Server = taskEntry.ip
+	result.TaskType = taskEntry.tasktype
+	return *result
 }

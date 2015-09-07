@@ -14,7 +14,11 @@ import (
 	"time"
 )
 
-const timeout_period_for_ssh int32 = int32(60) // 60 seconds
+// CONFIG
+const timeout_period_for_ssh int32 = int32(60)                                             // 60 seconds
+const db_url string = "postgres://sshcheck:sshcheck@psql_host_ip/sshcheck?sslmode=disable" // ?sslmode=verify-full
+const default_output string = "result.json"
+const progress_refresh_interval time.Duration = time.Second
 
 type ConfigElement struct {
 	User              string   `json:"ssh-user"`
@@ -31,29 +35,22 @@ type ConfigElement struct {
 	} `json:"check_config_file_exists"`
 }
 
-type ConfigReturn struct {
-	CheckFileContainsResult []CheckFileContainsResult `json:"check_config_file_contains_result"`
-	CheckFileExistsResult   []CheckFileExistsResult   `json:"check_config_file_exists_result"`
+type ResultJson struct {
+	ResultEntry []ResultEntry `json:"result"`
 }
 
-type CheckFileContainsResult struct {
-	Name   string `json:"name"`
-	Result bool   `json:"result"`
-	Server string `json:"server"`
+type ResultEntry struct {
+	id           int    `json:"id"`
+	Name         string `json:"name"`
+	Server       string `json:"server_ip"`
+	TaskType     string `json:"task_type"`
+	Result       bool   `json:"result"`
+	ErrorMessage string `json:"error_message"`
 }
-
-type CheckFileExistsResult struct {
-	Name   string `json:"name"`
-	Result bool   `json:"result"`
-	Server string `json:"server"`
-}
-
-const db_url string = "postgres://sshcheck:sshcheck@54.93.96.180/sshcheck?sslmode=disable" // ?sslmode=verify-full
 
 func main() {
 
 	timeStart := time.Now()
-
 	db, err := sql.Open("postgres", "postgres://sshcheck:sshcheck@54.93.96.180/sshcheck?sslmode=disable") // ?sslmode=verify-full
 	checkErr(err)
 	defer db.Close()
@@ -72,12 +69,31 @@ func main() {
 	for taskExists {
 		printJobNum(db, totalNumberOfJobs)
 		taskExists = checkIfTaskExists(db)
-		time.Sleep(1 * time.Second)
+		time.Sleep(progress_refresh_interval)
 	}
 
 	elapsed := time.Since(timeStart)
 	fmt.Printf("\n Total time: %+v", elapsed)
 
+	// write to json
+
+	rows, err := db.Query("select * from Result")
+	checkErr(err)
+
+	resultEntryList := make([]ResultEntry, 0)
+
+	for rows.Next() {
+		resultEntry := new(ResultEntry)
+		err := rows.Scan(&resultEntry.id, &resultEntry.Name, &resultEntry.Server, &resultEntry.TaskType, &resultEntry.Result, &resultEntry.ErrorMessage)
+		checkErr(err)
+		resultEntryList = append(resultEntryList, *resultEntry)
+	}
+	rows.Close()
+
+	resultJson := new(ResultJson)
+	resultJson.ResultEntry = resultEntryList
+
+	writeResultToJsonFile(*resultJson)
 }
 
 func setup(inputFile string, db *sql.DB) int {
@@ -156,7 +172,7 @@ func checkIfTaskExists(db *sql.DB) bool {
 	checkErr(err)
 	taskExists := rows.Next()
 	rows.Close()
-	db.Exec("update Task where status='LOCKED' and task_start_time < $1", int32(time.Now().Unix())-timeout_period_for_ssh)
+	db.Exec("update Task set status='OPEN' where status='LOCKED' and task_start_time < $1", int32(time.Now().Unix())-timeout_period_for_ssh)
 	return taskExists
 }
 
@@ -165,11 +181,32 @@ func printJobNum(db *sql.DB, totalNumberOfJobs int) {
 	err := db.QueryRow("select count(*) from result").Scan(&jobNum)
 	checkErr(err)
 	fmt.Print("\r")
-	fmt.Printf("Number of Jobs processed: %v/%v", jobNum, totalNumberOfJobs)
+	fmt.Printf("Number of Jobs processed: %v", jobNum)
+	if totalNumberOfJobs != 0 {
+		fmt.Printf("/%v", totalNumberOfJobs)
+	}
 }
 
 func checkErr(err error) {
 	if err != nil {
 		log.Printf("%T %+v", err, err)
+	}
+}
+
+func writeResultToJsonFile(result ResultJson) {
+	var outputFile string
+	if len(os.Args) < 3 {
+		outputFile = default_output
+	} else {
+		outputFile = os.Args[2]
+	}
+	fp, err := os.Create(outputFile)
+	if err != nil {
+		logging.Fatal("Unable to create %v. Err: %v.", outputFile, err)
+	}
+	defer fp.Close()
+	encoder := json.NewEncoder(fp)
+	if err = encoder.Encode(result); err != nil {
+		logging.Fatal("Unable to encode Json file. Err: %v.", err)
 	}
 }

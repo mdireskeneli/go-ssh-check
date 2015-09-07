@@ -2,7 +2,7 @@
 # go-ssh-check
 **Configuration Check with Go**
 
-This application performs concurrent ssh-checks. 
+This application can be used to connect to multiple virtual machines concurrently and to perform certain tasks on them, e.g.. checking configuration, inspecting files.
 
 At the moment, there are only two types of inspection:
 - Check if a file exists on the server
@@ -33,24 +33,16 @@ Refer to the example config.json file for the structure of json-configuration fi
 There are two files to be used in this application.
 
 **sshcheck.go: configurer, job-starter**
-- initializes the postgre database
+- initializes the postgres database
 - parses config.json file and loads the data to the database.
 - tracks the current status of the tasks
 - writes a json file when the task finishes
 
 **sshcheck_worker.go:**
-- process the the tasks given in json-config file.
-- multiple instances are allowed
+- process the the tasks given in the json-config file.
+- allows multiple instances
 
 Both applications require a central postgre-sql database for communication and task-handling.
-
-**Some implementation details**
-The worker application can be run as multiple instances on different machines. Its main task is to process the input data on tasks-table and to write the results on the result-table in the postgres-database.
-The workers await the new task-set, when they are started.
-When the tasks are ready to be taken, they are marked in the tasks-table as status:OPEN.
-If a row is currently being processed by a worker app, then it is marked with status:LOCKED.
-
-If a row cannot be processed by a certain worker app (ie. when the app fails or crushes, or when the connection cannot be established) then this row will return to the status:OPEN and thus will be available to other workers after a given time (default: 1min).
 
 The application might require some individual tuning:
 
@@ -62,9 +54,9 @@ The application might require some individual tuning:
 
 **CONFIG FOR WORKER-APP (sshcheck_worker.go)**
 - db_url: Required. Your postgres server url.
-- number_of_rows_to_be_processed: Number of rows that will be retrieved as bulk import. A bigger value allows faster processing. A lower value makes more precise monitoring in the main-app. Default:6
-- number_of_workers: Number of allowed concurrent ssh-calls from a worker app. Again bigger is faster, and lower is safer in the connections, especially when there are lots of checks for a certain machine. Default:3
-- check_interval: time period for initial checking of the new data in the database. This is not relevant when the process already started (default value: 5sec. This means the worker apps begin working at most 5 seconds after the main-app starts)
+- number_of_rows_to_be_processed: Number of rows that will be retrieved from the database as bulk import. A higher value allows faster processing. A lower value makes more precise monitoring in the main-app. (Default: 6)
+- number_of_workers: Number of allowed concurrent ssh-calls from a worker app. Higher is faster, and lower is safer in the connections, especially when there are lots of checks for a single machine. (Default: 3)
+- check_interval: time period for monitoring new data in the database. This is not relevant when the process is already started, a task-set runs without a pause (default value: 5 sec. This means the worker apps begin working at most 5 seconds after the main-app initializes content)
 
 **Config-Json:**
 - ssh-user: username for the ssh connection
@@ -108,3 +100,11 @@ The application might require some individual tuning:
 }
 ```
 
+
+**Some implementation details**
+
+The worker application can be run as multiple instances on different machines. Its main task is to process the input data and write to the result-table in the postgres-db. The workers await the new task-set, when they are started.
+When the tasks are available, they are marked in the tasks-table as status:OPEN.
+If a row is currently being processed by a worker app, then it is marked with status:LOCKED.
+
+If a row cannot be processed by a certain worker app (ie. when the app fails or crushes, or when the connection cannot be established) then this row will return to the status:OPEN and thus will be available to other workers after a given time (default: 1min).

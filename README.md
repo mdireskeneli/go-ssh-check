@@ -48,7 +48,7 @@ The application might require some individual tuning:
 
 **CONFIG FOR MAIN-APP (sshcheck.go)**
 - db_url: Required. Your postgres server url.
-- timeout_period_for_ssh: The amount of time that a locked task to be available again for other workers, in case it's not processed.  
+- timeout_period_for_ssh: The amount of time for a locked task to be available again for other workers, in case it's not processed.  
 - default_output: default output json file (default: result.json)
 - progress_refresh_interval: Refresh interval for monitoring the progress.
 

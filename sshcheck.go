@@ -46,6 +46,8 @@ type CheckFileExistsResult struct {
 	Server string `json:"server"`
 }
 
+const db_url string = "postgres://sshcheck:sshcheck@54.93.96.180/sshcheck?sslmode=disable" // ?sslmode=verify-full
+
 func main() {
 	timeStart := time.Now()
 
@@ -64,9 +66,7 @@ func main() {
 	}
 
 	db, err := sql.Open("postgres", "postgres://sshcheck:sshcheck@54.93.96.180/sshcheck?sslmode=disable") // ?sslmode=verify-full
-	if err != nil {
-		logging.Fatal("error writing to db" + err.Error())
-	}
+	checkErr(err)
 	defer db.Close()
 
 	_, err = db.Exec("DROP TABLE Config;")
@@ -83,8 +83,8 @@ func main() {
 	db.Exec("CREATE TABLE Task(id serial, taskname text, tasktype text, filepath text, checkstr text, ip text, status text, num_trial int);") //int , serial
 
 	db.Exec("DROP TABLE Jobinfo;")
-	db.Exec("CREATE TABLE Jobinfo(processed_job_num int);")
-	db.Exec("insert into Jobinfo(processed_job_num) values (0);")
+	//	db.Exec("CREATE TABLE Jobinfo(processed_job_num int);")
+	//	db.Exec("insert into Jobinfo(processed_job_num) values (0);")
 
 	db.Exec("DROP TABLE result;")
 	_, st := db.Exec("CREATE TABLE result(id serial, taskname text, server_ip text, tasktype text, result_val boolean, error_message text);") //int , serial
@@ -96,14 +96,11 @@ func main() {
 	fmt.Println("# Inserting values")
 
 	txn, err := db.Begin()
-	if err != nil {
-		log.Fatal(err)
-	}
-
+	checkErr(err)
 	stmt, err := txn.Prepare(pq.CopyIn("task", "taskname", "tasktype", "filepath", "checkstr", "ip", "status", "num_trial"))
-	if err != nil {
-		log.Fatal(err)
-	}
+	checkErr(err)
+
+	totalNumberOfJobs := (len(configElement.CheckFileContains) + len(configElement.CheckFileExists)) * len(configElement.Server)
 
 	fmt.Printf("CONFIGURATION:\n")
 	for _, host_ip := range configElement.Server {
@@ -138,10 +135,37 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("RESULT:\n")
+	fmt.Printf("RESULT: \n")
+
+	var taskExists bool = true
+	for taskExists {
+		printJobNum(db, totalNumberOfJobs)
+		taskExists = checkIfTaskExists(db)
+		time.Sleep(1 * time.Second)
+	}
 
 	elapsed := time.Since(timeStart)
+	fmt.Printf("\n Total time: %+v", elapsed)
 
-	fmt.Printf("%+v\n", elapsed)
+}
 
+func checkIfTaskExists(db *sql.DB) bool {
+	rows, err := db.Query("select * from Task where num_trial < 3")
+	checkErr(err)
+	taskExists := rows.Next()
+	return taskExists
+}
+
+func printJobNum(db *sql.DB, totalNumberOfJobs int) {
+	var jobNum int = 0
+	err := db.QueryRow("select count(*) from result").Scan(&jobNum)
+	checkErr(err)
+	fmt.Print("\r")
+	fmt.Printf("Number of Jobs processed: %v/%v", jobNum, totalNumberOfJobs)
+}
+
+func checkErr(err error) {
+	if err != nil {
+		log.Printf("%T %+v", err, err)
+	}
 }

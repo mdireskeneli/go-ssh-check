@@ -11,7 +11,8 @@ import (
 	"time"
 )
 
-const number_of_rows_to_be_processed int = 50
+const number_of_rows_to_be_processed int = 10
+const number_of_workers int = 4
 
 type TaskEntry struct {
 	id        int
@@ -42,25 +43,25 @@ const select_task_query string = "select * from Task where status = $1 and num_t
 const db_url string = "postgres://sshcheck:sshcheck@54.93.96.180/sshcheck?sslmode=disable" // ?sslmode=verify-full
 
 func main() {
+	db, err := sql.Open("postgres", db_url)
+	checkErr(err)
+	defer db.Close()
+
 	for {
-		taskExists := checkIfTaskExists()
+		taskExists := checkIfTaskExists(db)
 		if taskExists {
-			for checkIfTaskExists() {
-				startMainJob()
+			for checkIfTaskExists(db) {
+				startMainJob(db)
 			}
 		}
 		time.Sleep(5 * time.Second)
 	}
 }
 
-func startMainJob() {
-	db, err := sql.Open("postgres", db_url) // ?sslmode=verify-full
-	checkErr(err)
-	defer db.Close()
+func startMainJob(db *sql.DB) {
+	fmt.Println("\n # Reading values")
 
-	fmt.Println("# Reading values")
-
-	err = db.QueryRow("select username, private_key from config;").Scan(&username, &private_key)
+	err := db.QueryRow("select username, private_key from config;").Scan(&username, &private_key)
 	checkErr(err)
 
 	txn, err := db.Begin()
@@ -92,7 +93,7 @@ func startMainJob() {
 	taskEntryChannel := make(chan TaskEntry, bulkSize)
 	resultEntryChannel := make(chan ResultEntry, bulkSize)
 
-	for w := 1; w <= 6; w++ {
+	for w := 1; w <= number_of_workers; w++ {
 		go worker(w, taskEntryChannel, resultEntryChannel)
 	}
 
@@ -110,7 +111,7 @@ func startMainJob() {
 
 	taskIdList := getIdTaskListForInQuery(taskEntryList)
 	resultIdList := getIdResultListForInQuery(resultEntryList)
-	processed_job_num := len(resultIdList)
+	//processed_job_num := len(resultIdList)
 
 	txn, err = db.Begin()
 
@@ -137,10 +138,9 @@ func startMainJob() {
 	_, err = txn.Exec("update task set status = 'OPEN', num_trial = num_trial+1 where id in (" + taskIdList + ")") // parametrized variables do not work here
 	checkErr(err)
 
-	txn.Exec("update jobinfo set processed_job_num = processed_job_num + " + strconv.Itoa(processed_job_num) + " ;")
+	//	txn.Exec("update jobinfo set processed_job_num = processed_job_num + " + strconv.Itoa(processed_job_num) + " ;")
 
 	txn.Commit()
-	db.Close()
 }
 
 func getIdTaskListForInQuery(taskEntryList []TaskEntry) string {
@@ -241,21 +241,16 @@ func worker(id int, taskEntryChannel <-chan TaskEntry, resultEntryChannel chan R
 
 }
 
-func checkIfTaskExists() bool {
-	db, err := sql.Open("postgres", db_url)
-	checkErr(err)
-	defer db.Close()
-
+func checkIfTaskExists(db *sql.DB) bool {
 	rows, err := db.Query(select_task_query, "OPEN")
 	checkErr(err)
 
 	taskExists := rows.Next()
-	db.Close()
 	return taskExists
 }
 
 func checkErr(err error) {
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("%T %+v", err, err)
 	}
 }

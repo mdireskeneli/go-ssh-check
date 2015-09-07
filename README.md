@@ -100,6 +100,9 @@ The application might require some individual tuning:
 }
 ```
 
+**Screenshot**
+
+![screenshot](https://raw.githubusercontent.com/mdireskeneli/go-ssh-check/master/screenshot.png)
 
 **Some implementation details**
 

@@ -14,6 +14,8 @@ import (
 	"time"
 )
 
+const timeout_period_for_ssh int32 = int32(60) // 60 seconds
+
 type ConfigElement struct {
 	User              string   `json:"ssh-user"`
 	Server            []string `json:"server"`
@@ -49,12 +51,36 @@ type CheckFileExistsResult struct {
 const db_url string = "postgres://sshcheck:sshcheck@54.93.96.180/sshcheck?sslmode=disable" // ?sslmode=verify-full
 
 func main() {
+
 	timeStart := time.Now()
+
+	db, err := sql.Open("postgres", "postgres://sshcheck:sshcheck@54.93.96.180/sshcheck?sslmode=disable") // ?sslmode=verify-full
+	checkErr(err)
+	defer db.Close()
 
 	if len(os.Args) < 2 {
 		logging.Fatal("\nUsage: go run go-ssh-check <config.json> <output.json>")
 	}
 	inputFile := os.Args[1]
+	var totalNumberOfJobs int = 0
+	if inputFile != "-s" {
+		totalNumberOfJobs = setup(inputFile, db)
+	}
+
+	fmt.Printf("RESULT: \n")
+	var taskExists bool = true
+	for taskExists {
+		printJobNum(db, totalNumberOfJobs)
+		taskExists = checkIfTaskExists(db)
+		time.Sleep(1 * time.Second)
+	}
+
+	elapsed := time.Since(timeStart)
+	fmt.Printf("\n Total time: %+v", elapsed)
+
+}
+
+func setup(inputFile string, db *sql.DB) int {
 	configFile, err := os.Open(inputFile)
 	if err != nil {
 		logging.Fatal("opening config file" + err.Error())
@@ -64,10 +90,6 @@ func main() {
 	if err = jsonParser.Decode(&configElement); err != nil {
 		logging.Fatal("parsing config file" + err.Error())
 	}
-
-	db, err := sql.Open("postgres", "postgres://sshcheck:sshcheck@54.93.96.180/sshcheck?sslmode=disable") // ?sslmode=verify-full
-	checkErr(err)
-	defer db.Close()
 
 	_, err = db.Exec("DROP TABLE Config;")
 	_, err = db.Exec("CREATE TABLE Config(id serial, username text, private_key text);")
@@ -80,7 +102,7 @@ func main() {
 	}
 
 	db.Exec("DROP TABLE TASK;")
-	db.Exec("CREATE TABLE Task(id serial, taskname text, tasktype text, filepath text, checkstr text, ip text, status text, num_trial int);") //int , serial
+	db.Exec("CREATE TABLE Task(id serial, taskname text, tasktype text, filepath text, checkstr text, ip text, status text, num_trial int, task_start_time int);") //int , serial
 
 	db.Exec("DROP TABLE Jobinfo;")
 	//	db.Exec("CREATE TABLE Jobinfo(processed_job_num int);")
@@ -97,7 +119,7 @@ func main() {
 
 	txn, err := db.Begin()
 	checkErr(err)
-	stmt, err := txn.Prepare(pq.CopyIn("task", "taskname", "tasktype", "filepath", "checkstr", "ip", "status", "num_trial"))
+	stmt, err := txn.Prepare(pq.CopyIn("task", "taskname", "tasktype", "filepath", "checkstr", "ip", "status", "num_trial", "task_start_time"))
 	checkErr(err)
 
 	totalNumberOfJobs := (len(configElement.CheckFileContains) + len(configElement.CheckFileExists)) * len(configElement.Server)
@@ -107,13 +129,13 @@ func main() {
 		// performing the check for each server
 		fmt.Printf("Server: " + host_ip + "\n")
 		for _, v := range configElement.CheckFileContains {
-			_, err = stmt.Exec(v.Name, "file_contains", v.Path, v.Check, host_ip, "OPEN", 0)
+			_, err = stmt.Exec(v.Name, "file_contains", v.Path, v.Check, host_ip, "OPEN", 0, 0)
 			if err != nil {
 				log.Fatal(err)
 			}
 		}
 		for _, v := range configElement.CheckFileExists {
-			_, err = stmt.Exec(v.Name, "file_exists", v.Path, "", host_ip, "OPEN", 0)
+			_, err = stmt.Exec(v.Name, "file_exists", v.Path, "", host_ip, "OPEN", 0, 0)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -121,38 +143,20 @@ func main() {
 	}
 
 	_, err = stmt.Exec()
-	if err != nil {
-		log.Fatal(err)
-	}
-
+	checkErr(err)
 	err = stmt.Close()
-	if err != nil {
-		log.Fatal(err)
-	}
-
+	checkErr(err)
 	err = txn.Commit()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Printf("RESULT: \n")
-
-	var taskExists bool = true
-	for taskExists {
-		printJobNum(db, totalNumberOfJobs)
-		taskExists = checkIfTaskExists(db)
-		time.Sleep(1 * time.Second)
-	}
-
-	elapsed := time.Since(timeStart)
-	fmt.Printf("\n Total time: %+v", elapsed)
-
+	checkErr(err)
+	return totalNumberOfJobs
 }
 
 func checkIfTaskExists(db *sql.DB) bool {
 	rows, err := db.Query("select * from Task where num_trial < 3")
 	checkErr(err)
 	taskExists := rows.Next()
+	rows.Close()
+	db.Exec("update Task where status='LOCKED' and task_start_time < $1", int32(time.Now().Unix())-timeout_period_for_ssh)
 	return taskExists
 }
 

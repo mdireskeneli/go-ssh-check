@@ -11,18 +11,19 @@ import (
 	"time"
 )
 
-const number_of_rows_to_be_processed int = 10
-const number_of_workers int = 4
+const number_of_rows_to_be_processed int = 3
+const number_of_workers int = 2
 
 type TaskEntry struct {
-	id        int
-	taskname  string
-	tasktype  string
-	filepath  string
-	checkstr  string
-	ip        string
-	status    string
-	num_trial int
+	id              int
+	taskname        string
+	tasktype        string
+	filepath        string
+	checkstr        string
+	ip              string
+	status          string
+	num_trial       int
+	task_start_time int32
 }
 
 type ResultEntry struct {
@@ -79,14 +80,16 @@ func startMainJob(db *sql.DB) {
 
 	for i = 0; rows.Next() && i < number_of_rows_to_be_processed; i++ {
 		taskEntry := new(TaskEntry)
-		err := rows.Scan(&taskEntry.id, &taskEntry.taskname, &taskEntry.tasktype, &taskEntry.filepath, &taskEntry.checkstr, &taskEntry.ip, &taskEntry.status, &taskEntry.num_trial)
+		err := rows.Scan(&taskEntry.id, &taskEntry.taskname, &taskEntry.tasktype, &taskEntry.filepath, &taskEntry.checkstr, &taskEntry.ip, &taskEntry.status, &taskEntry.num_trial, &taskEntry.task_start_time)
 		checkErr(err)
 		taskEntryList = append(taskEntryList, *taskEntry)
 		log.Println(taskEntry.id, taskEntry.taskname)
 	}
 	var bulkSize = i
 
-	txn.Exec("update task set status = 'LOCKED' where id in (" + getIdTaskListForInQuery(taskEntryList) + ");")
+	rows.Close()
+
+	txn.Exec("update task set status = 'LOCKED', task_start_time = $1 where id in ("+getIdTaskListForInQuery(taskEntryList)+");", int32(time.Now().Unix()))
 
 	txn.Commit()
 
@@ -246,6 +249,7 @@ func checkIfTaskExists(db *sql.DB) bool {
 	checkErr(err)
 
 	taskExists := rows.Next()
+	rows.Close()
 	return taskExists
 }
 

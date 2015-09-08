@@ -153,6 +153,7 @@ func getIdTaskListForInQuery(taskEntryList []TaskEntry) string {
 	return inQuery
 }
 
+// this method will be refactored (see above)
 func getIdResultListForInQuery(resultEntryList []ResultEntry) string {
 	inQueryResult := ""
 	for j := 0; j < len(resultEntryList); j++ {

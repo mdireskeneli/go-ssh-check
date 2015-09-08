@@ -30,25 +30,25 @@ Refer to the example config.json file for the structure of json-configuration fi
 
 **Details:**
 
-There are two files to be used in this application.
+There are two separate apps to be used in this application.
 
-**sshcheck.go: configurer, job-starter**
+**sshcheck.go: configurer & job-starter**
 - initializes the postgres database
 - parses config.json file and loads the data to the database.
 - tracks the current status of the tasks
 - writes a json file when the task finishes
 
 **sshcheck_worker.go:**
-- process the the tasks given in the json-config file.
+- processes the the tasks given in the json-config file.
 - allows multiple instances
 
-Both applications require a central postgre-sql database for communication and task-handling.
+Both applications require a common postgre-sql database for communication and task-handling.
 
 The application might require some individual tuning:
 
 **CONFIG FOR MAIN-APP (sshcheck.go)**
 - db_url: Required. Your postgres server url.
-- timeout_period_for_ssh: The amount of time that a locked task to be available again for other workers, in case it's not processed.  
+- timeout_period_for_ssh: The amount of time for a locked task to be available again for other workers, in case it's not processed.  
 - default_output: default output json file (default: result.json)
 - progress_refresh_interval: Refresh interval for monitoring the progress.
 
@@ -74,7 +74,6 @@ The application might require some individual tuning:
    "52.58.19.432",
    "54.63.16.180"
    ],
-   "private-key-file":"/home/ec2-user/.ssh/id_rsa",
    "check_config_file_exists":[
       {
          "name":"test1",
@@ -100,6 +99,9 @@ The application might require some individual tuning:
 }
 ```
 
+**Screenshot**
+
+![screenshot](https://raw.githubusercontent.com/mdireskeneli/go-ssh-check/master/screenshot.png)
 
 **Some implementation details**
 

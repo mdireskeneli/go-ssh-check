@@ -15,6 +15,7 @@ import (
 const number_of_rows_to_be_processed int = 6
 const number_of_workers int = 3
 const db_url string = "postgres://sshcheck:sshcheck@psql_host_ip/sshcheck?sslmode=disable" // ?sslmode=verify-full
+const check_interval time.Duration = 5 * time.Second
 
 type TaskEntry struct {
 	id              int
@@ -56,7 +57,7 @@ func main() {
 				startMainJob(db)
 			}
 		}
-		time.Sleep(5 * time.Second)
+		time.Sleep(check_interval)
 	}
 }
 
@@ -84,8 +85,12 @@ func startMainJob(db *sql.DB) {
 	var bulkSize = i
 	err = rows.Close()
 	checkErr(err)
-	_, err = txn.Exec("update task set status = 'LOCKED', task_start_time = $1 where id in ("+getIdTaskListForInQuery(taskEntryList)+");", int32(time.Now().Unix()))
-	checkErr(err)
+
+	taskIdList := getIdTaskListForInQuery(taskEntryList)
+	if len(taskIdList) > 0 {
+		_, err = txn.Exec("update task set status = 'LOCKED', task_start_time = $1 where id in ("+taskIdList+");", int32(time.Now().Unix()))
+		checkErr(err)
+	}
 	err = txn.Commit()
 	checkErr(err)
 
@@ -105,12 +110,16 @@ func startMainJob(db *sql.DB) {
 		resultEntry := <-resultEntryChannel
 		resultEntryList = append(resultEntryList, resultEntry)
 	}
-	taskIdList := getIdTaskListForInQuery(taskEntryList)
-	resultIdList := getIdResultListForInQuery(resultEntryList)
+	//resultIdList := getIdResultListForInQuery(resultEntryList)
+
 	txn, err = db.Begin()
 	checkErr(err)
-	//_, err = txn.Exec("delete from result where id in (" + resultIdList + ");") // clear list in case of previous entires with errors
-	//checkErr(err)
+	/*
+		if len(resultIdList) > 0 { //deact.
+			_, err = txn.Exec("delete from result where id in (" + taskIdList + ");") // clear list in case of previous entires with errors
+			checkErr(err)
+		}
+	*/
 	stmt, err := txn.Prepare(pq.CopyIn("result", "taskname", "server_ip", "tasktype", "result_val", "error_message"))
 	checkErr(err)
 	for _, r := range resultEntryList {
@@ -121,10 +130,14 @@ func startMainJob(db *sql.DB) {
 	checkErr(err)
 	err = stmt.Close()
 	checkErr(err)
-	_, err = txn.Exec("delete from task where id in (" + resultIdList + ");") // parametrized variables do not work here
-	checkErr(err)
-	_, err = txn.Exec("update task set status = 'OPEN', num_trial = num_trial+1 where id in (" + taskIdList + ")") // parametrized variables do not work here
-	checkErr(err)
+	if len(taskIdList) > 0 {
+		_, err = txn.Exec("delete from task where id in (" + taskIdList + ");") // parametrized variables do not work here -> // result idlist
+		checkErr(err)
+	}
+	if len(taskIdList) > 0 {
+		_, err = txn.Exec("update task set status = 'OPEN', num_trial = num_trial+1 where id in (" + taskIdList + ")") // parametrized variables do not work here
+		checkErr(err)
+	}
 	//	txn.Exec("update jobinfo set processed_job_num = processed_job_num + " + strconv.Itoa(processed_job_num) + " ;")
 	txn.Commit()
 }
@@ -141,17 +154,17 @@ func getIdTaskListForInQuery(taskEntryList []TaskEntry) string {
 }
 
 func getIdResultListForInQuery(resultEntryList []ResultEntry) string {
-	inQuery := ""
+	inQueryResult := ""
 	for j := 0; j < len(resultEntryList); j++ {
 		if len(resultEntryList[j].ErrorMessage) > 0 {
 			continue
 		}
-		if inQuery != "" {
-			inQuery += ", "
+		if inQueryResult != "" {
+			inQueryResult += ", "
 		}
-		inQuery += strconv.Itoa(resultEntryList[j].id)
+		inQueryResult += strconv.Itoa(resultEntryList[j].id)
 	}
-	return inQuery
+	return inQueryResult
 }
 
 func checkFileContains(taskEntry TaskEntry, resultEntry chan ResultEntry) {
@@ -225,15 +238,21 @@ func worker(id int, taskEntryChannel <-chan TaskEntry, resultEntryChannel chan R
 
 func checkIfTaskExists(db *sql.DB) bool {
 	rows, err := db.Query(select_task_query, "OPEN")
-	checkErr(err)
-	taskExists := rows.Next()
-	rows.Close()
-	return taskExists
+	if err == nil {
+		taskExists := rows.Next()
+		rows.Close()
+		return taskExists
+	} else {
+		logging.Error("error checking db: " + err.Error())
+		return false
+	}
 }
 
 func checkErr(err error) {
 	if err != nil {
-		panic(err)
+		fmt.Print(err.Error())
+		time.Sleep(1 * time.Minute)
+		logging.Fatal("exiting")
 		//log.Printf("%T %+v", err, err)
 	}
 }

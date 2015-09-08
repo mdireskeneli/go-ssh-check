@@ -74,7 +74,6 @@ The application might require some individual tuning:
    "52.58.19.432",
    "54.63.16.180"
    ],
-   "private-key-file":"/home/ec2-user/.ssh/id_rsa",
    "check_config_file_exists":[
       {
          "name":"test1",

@@ -51,7 +51,7 @@ type ResultEntry struct {
 func main() {
 
 	timeStart := time.Now()
-	db, err := sql.Open("postgres", "postgres://sshcheck:sshcheck@54.93.96.180/sshcheck?sslmode=disable") // ?sslmode=verify-full
+	db, err := sql.Open("postgres", db_url) // ?sslmode=verify-full
 	checkErr(err)
 	defer db.Close()
 
@@ -131,7 +131,7 @@ func setup(inputFile string, db *sql.DB) int {
 		logging.Fatal("error writing to db" + err.Error())
 	}
 
-	fmt.Println("# Inserting values")
+	fmt.Println("\n# Inserting values")
 
 	txn, err := db.Begin()
 	checkErr(err)
@@ -189,7 +189,7 @@ func printJobNum(db *sql.DB, totalNumberOfJobs int) {
 
 func checkErr(err error) {
 	if err != nil {
-		log.Printf("%T %+v", err, err)
+		logging.Fatal("Error: " + err.Error())
 	}
 }
 

@@ -49,7 +49,6 @@ func main() {
 	db, err := sql.Open("postgres", db_url)
 	checkErr(err)
 	defer db.Close()
-
 	for {
 		taskExists := checkIfTaskExists(db)
 		if taskExists {
@@ -251,10 +250,7 @@ func checkIfTaskExists(db *sql.DB) bool {
 
 func checkErr(err error) {
 	if err != nil {
-		fmt.Print(err.Error())
-		time.Sleep(1 * time.Minute)
-		logging.Fatal("exiting")
-		//log.Printf("%T %+v", err, err)
+		logging.Fatal("Error: " + err.Error())
 	}
 }
 
